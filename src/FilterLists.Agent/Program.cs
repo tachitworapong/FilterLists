@@ -1,75 +1,45 @@
 ﻿using System;
-using System.IO;
 using System.Threading.Tasks;
-using FilterLists.Services;
-using FilterLists.Services.DependencyInjection.Extensions;
-using FilterLists.Services.Extensions;
-using FilterLists.Services.Snapshot;
-using Microsoft.Extensions.Configuration;
+using Autofac;
+using Autofac.Extensions.DependencyInjection;
+using FilterLists.Agent.Infrastructure;
+using FilterLists.Agent.ListArchiver;
+using MediatR;
 using Microsoft.Extensions.DependencyInjection;
+
+//TODO:  foreach list, download and persist raw list to disk with standardized name and overwriting the previous version
+//TODO:  git add .
+//TODO:  git commit
+//TODO:  foreach list, upsert into MariaDB Rules table https://stackoverflow.com/questions/15271202/mysql-load-data-infile-with-on-duplicate-key-update
 
 namespace FilterLists.Agent
 {
     public static class Program
     {
-        private const int BatchSize = 1;
-        private static IConfigurationRoot configRoot;
-        private static ServiceProvider serviceProvider;
-        private static SnapshotService snapshotService;
-        private static Logger logger;
-        private static readonly TimeSpan Timeout = TimeSpan.FromDays(7);
+        private static IServiceProvider _serviceProvider;
 
         public static async Task Main()
         {
-            BuildConfigRoot();
-            BuildServiceProvider();
-            snapshotService = serviceProvider.GetService<SnapshotService>();
-            logger = serviceProvider.GetService<Logger>();
-            await TryCaptureSnapshots();
+            RegisterServices();
+
+            var mediator = _serviceProvider.GetService<IMediator>();
+            await mediator.Send(new CaptureAllLists.Command());
+
+            ((IDisposable) _serviceProvider).Dispose();
         }
 
-        private static void BuildConfigRoot() =>
-            configRoot = new ConfigurationBuilder()
-                         .SetBasePath(Directory.GetCurrentDirectory())
-                         .AddJsonFile("appsettings.json", false)
-                         .Build();
-
-        private static void BuildServiceProvider()
+        private static void RegisterServices()
         {
             var serviceCollection = new ServiceCollection();
-            serviceCollection.AddFilterListsAgentServices(configRoot);
-            serviceProvider = serviceCollection.BuildServiceProvider();
-        }
+            var containerBuilder = new ContainerBuilder();
 
-        private static async Task TryCaptureSnapshots()
-        {
-            try
-            {
-                await CaptureSnapshots(BatchSize).TimeoutAfter(Timeout);
-            }
-            catch (TimeoutException te)
-            {
-                logger.Log(te);
-            }
-        }
+            // register Agent services
+            serviceCollection.AddMediatR(typeof(Program).Assembly);
+            containerBuilder.RegisterType<FilterListsApiClient>().AsImplementedInterfaces().SingleInstance();
 
-        private static async Task CaptureSnapshots(int batchSize)
-        {
-            logger.Log("Capturing FilterList snapshots...");
-            await TryCaptureAsync(batchSize);
-            logger.Log("Snapshots captured.");
-        }
-
-        private static async Task TryCaptureAsync(int batchSize)
-        {
-            try
-            {
-                await snapshotService.CaptureAsync(batchSize);
-            }
-            catch (Exception e)
-            {
-                logger.Log(e);
-            }
+            containerBuilder.Populate(serviceCollection);
+            var container = containerBuilder.Build();
+            _serviceProvider = new AutofacServiceProvider(container);
         }
     }
 }
