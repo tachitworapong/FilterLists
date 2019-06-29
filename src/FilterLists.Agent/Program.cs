@@ -1,75 +1,60 @@
 ﻿using System;
 using System.IO;
 using System.Threading.Tasks;
-using FilterLists.Services;
-using FilterLists.Services.DependencyInjection.Extensions;
-using FilterLists.Services.Extensions;
-using FilterLists.Services.Snapshot;
+using Autofac;
+using Autofac.Extensions.DependencyInjection;
+using FilterLists.Agent.Infrastructure;
+using FilterLists.Agent.ListArchiver;
+using MediatR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace FilterLists.Agent
 {
     public static class Program
     {
-        private const int BatchSize = 1;
-        private static IConfigurationRoot configRoot;
-        private static ServiceProvider serviceProvider;
-        private static SnapshotService snapshotService;
-        private static Logger logger;
-        private static readonly TimeSpan Timeout = TimeSpan.FromDays(7);
+        private static IServiceProvider _serviceProvider;
 
         public static async Task Main()
         {
-            BuildConfigRoot();
-            BuildServiceProvider();
-            snapshotService = serviceProvider.GetService<SnapshotService>();
-            logger = serviceProvider.GetService<Logger>();
-            await TryCaptureSnapshots();
+            RegisterServices();
+
+            var mediator = _serviceProvider.GetService<IMediator>();
+            await mediator.Send(new CaptureLists.Command());
+
+            ((IDisposable) _serviceProvider).Dispose();
         }
 
-        private static void BuildConfigRoot() =>
-            configRoot = new ConfigurationBuilder()
-                         .SetBasePath(Directory.GetCurrentDirectory())
-                         .AddJsonFile("appsettings.json", false)
-                         .Build();
-
-        private static void BuildServiceProvider()
+        private static void RegisterServices()
         {
+            var configuration = GetConfiguration();
             var serviceCollection = new ServiceCollection();
-            serviceCollection.AddFilterListsAgentServices(configRoot);
-            serviceProvider = serviceCollection.BuildServiceProvider();
+
+            // register Agent services
+            //serviceCollection.AddSingleton(configuration);
+            serviceCollection.AddLogging(b =>
+            {
+                b.AddConsole();
+                b.AddApplicationInsights(configuration["ApplicationInsights:InstrumentationKey"]);
+            });
+            serviceCollection.AddMediatR(typeof(Program).Assembly);
+            serviceCollection.AddHttpClient<AgentHttpClient>();
+            serviceCollection.AddSingleton<IFilterListsApiClient, FilterListsApiClient>();
+
+            var containerBuilder = new ContainerBuilder();
+            containerBuilder.Populate(serviceCollection);
+            var container = containerBuilder.Build();
+            _serviceProvider = new AutofacServiceProvider(container);
         }
 
-        private static async Task TryCaptureSnapshots()
+        private static IConfigurationRoot GetConfiguration()
         {
-            try
-            {
-                await CaptureSnapshots(BatchSize).TimeoutAfter(Timeout);
-            }
-            catch (TimeoutException te)
-            {
-                logger.Log(te);
-            }
-        }
-
-        private static async Task CaptureSnapshots(int batchSize)
-        {
-            logger.Log("Capturing FilterList snapshots...");
-            await TryCaptureAsync(batchSize);
-            logger.Log("Snapshots captured.");
-        }
-
-        private static async Task TryCaptureAsync(int batchSize)
-        {
-            try
-            {
-                await snapshotService.CaptureAsync(batchSize);
-            }
-            catch (Exception e)
-            {
-                logger.Log(e);
-            }
+            return new ConfigurationBuilder()
+                .SetBasePath(Directory.GetCurrentDirectory())
+                .AddJsonFile("appsettings.json", true, false)
+                .AddEnvironmentVariables()
+                .Build();
         }
     }
 }
