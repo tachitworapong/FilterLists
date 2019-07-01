@@ -1,7 +1,8 @@
 ﻿using System;
 using System.Threading.Tasks;
 using FilterLists.Agent.Extensions;
-using FilterLists.Agent.Features.Archiver;
+using FilterLists.Agent.Features.Lists;
+using FilterLists.Agent.Features.Urls;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -14,9 +15,9 @@ namespace FilterLists.Agent
         public static async Task Main()
         {
             BuildServiceProvider();
-
             var mediator = _serviceProvider.GetService<IMediator>();
-            await mediator.Send(new CaptureLists.Command());
+            //await mediator.Send(new CaptureLists.Command());
+            await mediator.Send(new ValidateAllUrls.Command());
         }
 
         private static void BuildServiceProvider()
