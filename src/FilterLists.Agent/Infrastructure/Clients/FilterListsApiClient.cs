@@ -2,7 +2,7 @@
 using System.Threading.Tasks;
 using RestSharp;
 
-namespace FilterLists.Agent.Infrastructure
+namespace FilterLists.Agent.Infrastructure.Clients
 {
     public interface IFilterListsApiClient
     {
