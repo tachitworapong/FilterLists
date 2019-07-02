@@ -1,16 +1,16 @@
 ﻿using System.IO;
-using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using FilterLists.Agent.Core.Entities;
-using FilterLists.Agent.Extensions;
 using FilterLists.Agent.Infrastructure.Clients;
 using MediatR;
+using SharpCompress.Common;
+using SharpCompress.Readers;
 
-namespace FilterLists.Agent.Features.Archiver
+namespace FilterLists.Agent.Features.Lists
 {
-    public static class DownloadRawText
+    public static class DownloadZip
     {
         public class Command : IRequest
         {
@@ -25,26 +25,26 @@ namespace FilterLists.Agent.Features.Archiver
         public class Handler : AsyncRequestHandler<Command>
         {
             private const string RepoDirectory = "archives";
-            private readonly string[] _extensionsToRewrite = { "", ".aspx", ".p2p", ".php" };
             private readonly HttpClient _httpClient;
 
-            public Handler(AgentHttpClient httpClient)
+            public Handler(AgentHttpClient agentHttpClient)
             {
-                _httpClient = httpClient.Client;
+                _httpClient = agentHttpClient.Client;
             }
 
             protected override async Task Handle(Command request, CancellationToken cancellationToken)
             {
-                var sourceExtension = request.ListInfo.ViewUrl.GetExtension();
-                var destinationExtension = _extensionsToRewrite.Contains(sourceExtension) ? ".txt" : sourceExtension;
-                var destinationPath = Path.Combine(RepoDirectory, $"{request.ListInfo.Id}{destinationExtension}");
+                var destinationDirectoryPath = Path.Combine(RepoDirectory, $"{request.ListInfo.Id}");
                 using (var response = await _httpClient.GetAsync(request.ListInfo.ViewUrl, cancellationToken))
                 {
                     if (response.IsSuccessStatusCode)
                         using (var input = await response.Content.ReadAsStreamAsync())
-                        using (var output = File.OpenWrite(destinationPath))
+                        using (var reader = ReaderFactory.Open(input))
                         {
-                            await input.CopyToAsync(output, cancellationToken);
+                            while (reader.MoveToNextEntry())
+                                if (!reader.Entry.IsDirectory)
+                                    reader.WriteEntryToDirectory(destinationDirectoryPath,
+                                        new ExtractionOptions {ExtractFullPath = true, Overwrite = true});
                         }
                 }
             }
