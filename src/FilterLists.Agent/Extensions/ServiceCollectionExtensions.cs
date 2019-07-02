@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Octokit;
 
 namespace FilterLists.Agent.Extensions
 {
@@ -15,17 +16,13 @@ namespace FilterLists.Agent.Extensions
         public static void RegisterAgentServices(this IServiceCollection services)
         {
             services.AddConfiguration();
-            services.AddLogging(b =>
-            {
-                b.AddConsole();
-                var appInsightsKey = b.Services.BuildServiceProvider().GetService<IOptions<ApplicationInsights>>().Value
-                    .InstrumentationKey;
-                b.AddApplicationInsights(appInsightsKey);
-            });
+            services.AddLoggingCustom();
             services.AddMediatR(typeof(Program).Assembly);
             services.AddHttpClient<AgentHttpClient>();
             services.AddSingleton<IFilterListsApiClient, FilterListsApiClient>();
+            services.AddGitHubClient();
             services.AddTransient<IListInfoRepository, ListInfoRepository>();
+            services.AddTransient<IUrlRepository, UrlRepository>();
         }
 
         private static void AddConfiguration(this IServiceCollection services)
@@ -33,9 +30,35 @@ namespace FilterLists.Agent.Extensions
             var config = new ConfigurationBuilder()
                 .AddEnvironmentVariables()
                 .AddJsonFile("appsettings.json", true, true)
+#if DEBUG
+                .AddJsonFile("appsettings.Development.json", true, true)
+#endif
                 .Build();
             services.Configure<ApplicationInsights>(config.GetSection(nameof(ApplicationInsights)));
             services.Configure<ConnectionStrings>(config.GetSection(nameof(ConnectionStrings)));
+            services.Configure<GitHub>(config.GetSection(nameof(GitHub)));
+        }
+
+        private static void AddLoggingCustom(this IServiceCollection services)
+        {
+            services.AddLogging(b =>
+            {
+                b.AddConsole();
+                var appInsightsConfig = b.Services.BuildServiceProvider().GetService<IOptions<ApplicationInsights>>();
+                b.AddApplicationInsights(appInsightsConfig.Value.InstrumentationKey);
+            });
+        }
+
+        private static void AddGitHubClient(this IServiceCollection services)
+        {
+            services.AddSingleton<IGitHubClient>(s =>
+            {
+                var gitHubConfig = s.GetService<IOptions<GitHub>>();
+                return new GitHubClient(new ProductHeaderValue(gitHubConfig.Value.ProductHeaderValue))
+                {
+                    Credentials = new Credentials(gitHubConfig.Value.OauthToken)
+                };
+            });
         }
     }
 }
