@@ -15,17 +15,13 @@ namespace FilterLists.Agent.Extensions
         public static void RegisterAgentServices(this IServiceCollection services)
         {
             services.AddConfiguration();
-            services.AddLogging(b =>
-            {
-                b.AddConsole();
-                var appInsightsKey = b.Services.BuildServiceProvider().GetService<IOptions<ApplicationInsights>>().Value
-                    .InstrumentationKey;
-                b.AddApplicationInsights(appInsightsKey);
-            });
+            services.AddLoggingCustom();
             services.AddMediatR(typeof(Program).Assembly);
             services.AddHttpClient<AgentHttpClient>();
             services.AddSingleton<IFilterListsApiClient, FilterListsApiClient>();
+            services.AddSingleton<IAgentGitHubClient, AgentGitHubClient>();
             services.AddTransient<IListInfoRepository, ListInfoRepository>();
+            services.AddTransient<IUrlRepository, UrlRepository>();
         }
 
         private static void AddConfiguration(this IServiceCollection services)
@@ -33,9 +29,23 @@ namespace FilterLists.Agent.Extensions
             var config = new ConfigurationBuilder()
                 .AddEnvironmentVariables()
                 .AddJsonFile("appsettings.json", true, true)
+#if DEBUG
+                .AddJsonFile("appsettings.Development.json", true, true)
+#endif
                 .Build();
             services.Configure<ApplicationInsights>(config.GetSection(nameof(ApplicationInsights)));
             services.Configure<ConnectionStrings>(config.GetSection(nameof(ConnectionStrings)));
+            services.Configure<GitHub>(config.GetSection(nameof(GitHub)));
+        }
+
+        private static void AddLoggingCustom(this IServiceCollection services)
+        {
+            services.AddLogging(b =>
+            {
+                b.AddConsole();
+                var appInsightsConfig = b.Services.BuildServiceProvider().GetService<IOptions<ApplicationInsights>>();
+                b.AddApplicationInsights(appInsightsConfig.Value.InstrumentationKey);
+            });
         }
     }
 }
