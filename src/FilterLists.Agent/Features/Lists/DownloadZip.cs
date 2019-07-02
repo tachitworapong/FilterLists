@@ -5,13 +5,13 @@ using System.Threading.Tasks;
 using FilterLists.Agent.Core.Entities;
 using FilterLists.Agent.Infrastructure.Clients;
 using MediatR;
-using SharpCompress.Archives;
-using SharpCompress.Archives.SevenZip;
+using Microsoft.Extensions.Logging;
 using SharpCompress.Common;
+using SharpCompress.Readers;
 
-namespace FilterLists.Agent.Features.Archiver
+namespace FilterLists.Agent.Features.Lists
 {
-    public static class DownloadSevenZip
+    public static class DownloadZip
     {
         public class Command : IRequest
         {
@@ -27,10 +27,12 @@ namespace FilterLists.Agent.Features.Archiver
         {
             private const string RepoDirectory = "archives";
             private readonly HttpClient _httpClient;
+            private readonly ILogger<Handler> _logger;
 
-            public Handler(AgentHttpClient httpClient)
+            public Handler(AgentHttpClient agentHttpClient, ILogger<Handler> logger)
             {
-                _httpClient = httpClient.Client;
+                _httpClient = agentHttpClient.Client;
+                _logger = logger;
             }
 
             protected override async Task Handle(Command request, CancellationToken cancellationToken)
@@ -40,13 +42,16 @@ namespace FilterLists.Agent.Features.Archiver
                 {
                     if (response.IsSuccessStatusCode)
                         using (var input = await response.Content.ReadAsStreamAsync())
-                        using (var archive = SevenZipArchive.Open(input))
+                        using (var reader = ReaderFactory.Open(input))
                         {
-                            foreach (var entry in archive.Entries)
-                                if (!entry.IsDirectory)
-                                    entry.WriteToDirectory(destinationDirectoryPath,
+                            while (reader.MoveToNextEntry())
+                                if (!reader.Entry.IsDirectory)
+                                    reader.WriteEntryToDirectory(destinationDirectoryPath,
                                         new ExtractionOptions {ExtractFullPath = true, Overwrite = true});
                         }
+                    else
+                        _logger.LogError(
+                            $"Error downloading list {request.ListInfo.Id} from {request.ListInfo.ViewUrl}. {response.StatusCode}");
                 }
             }
         }
