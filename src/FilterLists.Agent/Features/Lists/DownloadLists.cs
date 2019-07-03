@@ -9,7 +9,7 @@ using FilterLists.Agent.Extensions;
 using MediatR;
 using Microsoft.Extensions.Logging;
 
-namespace FilterLists.Agent.Features.Archiver
+namespace FilterLists.Agent.Features.Lists
 {
     public static class DownloadLists
     {
@@ -82,22 +82,26 @@ namespace FilterLists.Agent.Features.Archiver
                     async l =>
                     {
                         var errorMessage = $"Error downloading list {l.Id} from {l.ViewUrl}.";
-                        try
+                        var extension = l.ViewUrl.GetExtension();
+                        if (CommandsByExtension.ContainsKey(extension))
                         {
-                            var extension = l.ViewUrl.GetExtension();
-                            if (CommandsByExtension.ContainsKey(extension))
+                            var command = CommandsByExtension[extension].Invoke(l);
+                            try
                             {
-                                var command = CommandsByExtension[extension].Invoke(l);
                                 await _mediator.Send(command, cancellationToken);
                             }
+                            catch (HttpRequestException ex)
+                            {
+                                _logger.LogError(ex, errorMessage);
+                            }
+                            catch (TaskCanceledException ex)
+                            {
+                                _logger.LogError(ex, errorMessage);
+                            }
                         }
-                        catch (HttpRequestException ex)
+                        else
                         {
-                            _logger.LogError(ex, errorMessage);
-                        }
-                        catch (TaskCanceledException ex)
-                        {
-                            _logger.LogError(ex, errorMessage);
+                            _logger.LogError($"The file extension of list {l.Id} from {l.ViewUrl} is not supported.");
                         }
                     },
                     new ExecutionDataflowBlockOptions {MaxDegreeOfParallelism = MaxDegreeOfParallelism}
