@@ -2,28 +2,20 @@
 # Command: docker build -f src/FilterLists.Web/Dockerfile .
 
 # init base
-FROM mcr.microsoft.com/dotnet/core/runtime-deps:2.2-alpine as base
-EXPOSE 80
-ENTRYPOINT ["./FilterLists.Web"]
-WORKDIR /app
+FROM nginx:alpine as base
 
 # init build
-FROM mcr.microsoft.com/dotnet/core/sdk:2.2-alpine AS build
-WORKDIR /app
-RUN apk add --update nodejs nodejs-npm
+FROM node:alpine as build
 
-# restore
-COPY FilterLists.Web.sln ./
-WORKDIR /app/src/FilterLists.Web/
-COPY src/FilterLists.Web/FilterLists.Web.csproj ./
-WORKDIR /app
-RUN dotnet restore
+# install
+WORKDIR /usr/src/app/
+COPY src/FilterLists.Web/package*.json ./
+RUN npm install --only=prod
 
-# publish
-WORKDIR /app/src/FilterLists.Web/
+# build
 COPY src/FilterLists.Web/. ./
-RUN dotnet publish -c Release -r linux-musl-x64 -o out --no-restore
+RUN npm run build
 
-# run
+# final
 FROM base as final
-COPY --from=build /app/src/FilterLists.Web/out ./
+COPY --from=build /usr/src/app/build /usr/share/nginx/html
